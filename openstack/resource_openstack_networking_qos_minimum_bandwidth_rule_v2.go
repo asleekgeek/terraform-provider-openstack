@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/qos/rules"
@@ -78,7 +78,7 @@ func resourceNetworkingQoSMinimumBandwidthRuleV2Create(ctx context.Context, d *s
 
 	log.Printf("[DEBUG] Waiting for openstack_networking_qos_minimum_bandwidth_rule_v2 %s to become available.", r.ID)
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Target:     []string{"ACTIVE"},
 		Refresh:    networkingQoSMinimumBandwidthRuleV2StateRefreshFunc(networkingClient, qosPolicyID, r.ID),
 		Timeout:    d.Timeout(schema.TimeoutCreate),
@@ -106,9 +106,9 @@ func resourceNetworkingQoSMinimumBandwidthRuleV2Read(ctx context.Context, d *sch
 		return diag.Errorf("Error creating OpenStack networking client: %s", err)
 	}
 
-	qosPolicyID, qosRuleID, err := resourceNetworkingQoSRuleV2ParseID(d.Id())
+	qosPolicyID, qosRuleID, err := parsePairedIDs(d.Id(), "openstack_networking_qos_minimum_bandwidth_rule_v2")
 	if err != nil {
-		return diag.Errorf("Error reading openstack_networking_qos_minimum_bandwidth_rule_v2 ID %s: %s", d.Id(), err)
+		return diag.FromErr(err)
 	}
 
 	r, err := rules.GetMinimumBandwidthRule(networkingClient, qosPolicyID, qosRuleID).ExtractMinimumBandwidthRule()
@@ -133,9 +133,9 @@ func resourceNetworkingQoSMinimumBandwidthRuleV2Update(ctx context.Context, d *s
 		return diag.Errorf("Error creating OpenStack networking client: %s", err)
 	}
 
-	qosPolicyID, qosRuleID, err := resourceNetworkingQoSRuleV2ParseID(d.Id())
+	qosPolicyID, qosRuleID, err := parsePairedIDs(d.Id(), "openstack_networking_qos_minimum_bandwidth_rule_v2")
 	if err != nil {
-		return diag.Errorf("Error reading openstack_networking_qos_minimum_bandwidth_rule_v2 ID %s: %s", d.Id(), err)
+		return diag.FromErr(err)
 	}
 
 	var hasChange bool
@@ -170,16 +170,16 @@ func resourceNetworkingQoSMinimumBandwidthRuleV2Delete(ctx context.Context, d *s
 		return diag.Errorf("Error creating OpenStack networking client: %s", err)
 	}
 
-	qosPolicyID, qosRuleID, err := resourceNetworkingQoSRuleV2ParseID(d.Id())
+	qosPolicyID, qosRuleID, err := parsePairedIDs(d.Id(), "openstack_networking_qos_minimum_bandwidth_rule_v2")
 	if err != nil {
-		return diag.Errorf("Error reading openstack_networking_qos_minimum_bandwidth_rule_v2 ID %s: %s", d.Id(), err)
+		return diag.FromErr(err)
 	}
 
 	if err := rules.DeleteMinimumBandwidthRule(networkingClient, qosPolicyID, qosRuleID).ExtractErr(); err != nil {
 		return diag.FromErr(CheckDeleted(d, err, "Error getting openstack_networking_qos_minimum_bandwidth_rule_v2"))
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"ACTIVE"},
 		Target:     []string{"DELETED"},
 		Refresh:    networkingQoSMinimumBandwidthRuleV2StateRefreshFunc(networkingClient, qosPolicyID, d.Id()),

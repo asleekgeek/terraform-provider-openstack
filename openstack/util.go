@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/gophercloud/gophercloud"
@@ -53,6 +53,11 @@ func GetRegion(d *schema.ResourceData, config *Config) string {
 func AddValueSpecs(body map[string]interface{}) map[string]interface{} {
 	if body["value_specs"] != nil {
 		for k, v := range body["value_specs"].(map[string]interface{}) {
+			// this hack allows to pass boolean values as strings
+			if v == "true" || v == "false" {
+				body[k] = v == "true"
+				continue
+			}
 			body[k] = v
 		}
 		delete(body, "value_specs")
@@ -70,22 +75,22 @@ func MapValueSpecs(d *schema.ResourceData) map[string]string {
 	return m
 }
 
-func checkForRetryableError(err error) *resource.RetryError {
+func checkForRetryableError(err error) *retry.RetryError {
 	switch e := err.(type) {
 	case gophercloud.ErrDefault500:
-		return resource.RetryableError(err)
+		return retry.RetryableError(err)
 	case gophercloud.ErrDefault409:
-		return resource.RetryableError(err)
+		return retry.RetryableError(err)
 	case gophercloud.ErrDefault503:
-		return resource.RetryableError(err)
+		return retry.RetryableError(err)
 	case gophercloud.ErrUnexpectedResponseCode:
 		if e.GetStatusCode() == 504 || e.GetStatusCode() == 502 {
-			return resource.RetryableError(err)
+			return retry.RetryableError(err)
 		} else {
-			return resource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 	default:
-		return resource.NonRetryableError(err)
+		return retry.NonRetryableError(err)
 	}
 }
 
@@ -308,4 +313,27 @@ func mapDiffWithNilValues(oldMap, newMap map[string]interface{}) (output map[str
 	}
 
 	return
+}
+
+// parsePairedIDs is a helper function that parses a raw ID into two
+// separate IDs. This is useful for resources that have a parent/child
+// relationship.
+func parsePairedIDs(id string, res string) (string, string, error) {
+	parts := strings.SplitN(id, "/", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("Unable to determine %s ID from raw ID: %s", res, id)
+	}
+
+	return parts[0], parts[1], nil
+}
+
+// getOkExists is a helper function that replaces the deprecated GetOkExists
+// schema method. It returns the value of the key if it exists in the
+// configuration, along with a boolean indicating if the key exists.
+func getOkExists(d *schema.ResourceData, key string) (interface{}, bool) {
+	v := d.GetRawConfig().GetAttr(key)
+	if v.IsNull() {
+		return nil, false
+	}
+	return d.Get(key), true
 }

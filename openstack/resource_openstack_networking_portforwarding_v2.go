@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/portforwarding"
@@ -85,9 +85,8 @@ func resourceNetworkPortForwardingV2Create(ctx context.Context, d *schema.Resour
 		InternalPort:      d.Get("internal_port").(int),
 		InternalPortID:    d.Get("internal_port_id").(string),
 		Protocol:          d.Get("protocol").(string),
+		Description:       d.Get("description").(string),
 	}
-
-	// TODO: add description.
 
 	log.Printf("[DEBUG] openstack_networking_portforwarding_v2 create options: %#v", createOpts)
 
@@ -98,7 +97,7 @@ func resourceNetworkPortForwardingV2Create(ctx context.Context, d *schema.Resour
 
 	log.Printf("[DEBUG] Waiting for openstack_networking_portforwarding_v2 %s to become available.", pf.ID)
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Target:     []string{"ACTIVE"},
 		Refresh:    networkingPortForwardingV2StateRefreshFunc(networkingClient, fipID, pf.ID),
 		Timeout:    d.Timeout(schema.TimeoutCreate),
@@ -106,7 +105,7 @@ func resourceNetworkPortForwardingV2Create(ctx context.Context, d *schema.Resour
 		MinTimeout: 3 * time.Second,
 	}
 
-	_, err = stateConf.WaitForState()
+	_, err = stateConf.WaitForStateContext(ctx)
 	if err != nil {
 		return diag.Errorf("Error waiting for openstack_networking_portforwarding_v2 %s to become available: %s", pf.ID, err)
 	}
@@ -125,7 +124,6 @@ func resourceNetworkPortForwardingV2Read(ctx context.Context, d *schema.Resource
 	}
 
 	fipID := d.Get("floatingip_id").(string)
-
 	pf, err := portforwarding.Get(networkingClient, fipID, d.Id()).Extract()
 	if err != nil {
 		return diag.FromErr(CheckDeleted(d, err, "Error getting openstack_networking_portforwarding_v2"))
@@ -134,14 +132,13 @@ func resourceNetworkPortForwardingV2Read(ctx context.Context, d *schema.Resource
 	log.Printf("[DEBUG] Retrieved openstack_networking_portforwarding_v2 %s: %#v", d.Id(), pf)
 
 	d.Set("id", pf.ID)
+	d.Set("description", pf.Description)
 	d.Set("internal_port_id", pf.InternalPortID)
 	d.Set("internal_ip_address", pf.InternalIPAddress)
 	d.Set("internal_port", pf.InternalPort)
 	d.Set("external_port", pf.ExternalPort)
 	d.Set("protocol", pf.Protocol)
 	d.Set("region", GetRegion(d, config))
-
-	// TODO: add description.
 
 	return nil
 }
@@ -156,20 +153,17 @@ func resourceNetworkPortForwardingV2Update(ctx context.Context, d *schema.Resour
 	var hasChange bool
 	var updateOpts portforwarding.UpdateOpts
 
-	fipID := d.Get("floating_IP_ID").(string)
-
+	fipID := d.Get("floatingip_id").(string)
 	if d.HasChange("internal_port_id") {
 		hasChange = true
 		internalPortID := d.Get("internal_port_id").(string)
 		updateOpts.InternalPortID = internalPortID
 	}
-
 	if d.HasChange("external_port") {
 		hasChange = true
 		externalPort := d.Get("external_port").(int)
 		updateOpts.ExternalPort = externalPort
 	}
-
 	if d.HasChange("internal_port") {
 		hasChange = true
 		internalPort := d.Get("internal_port").(int)
@@ -180,8 +174,11 @@ func resourceNetworkPortForwardingV2Update(ctx context.Context, d *schema.Resour
 		protocol := d.Get("protocol").(string)
 		updateOpts.Protocol = protocol
 	}
-
-	// TODO: add description.
+	if d.HasChange("description") {
+		hasChange = true
+		description := d.Get("description").(string)
+		updateOpts.Description = &description
+	}
 
 	if hasChange {
 		log.Printf("[DEBUG] openstack_networking_portforwarding_v2 %s update options: %#v", d.Id(), updateOpts)
@@ -202,12 +199,11 @@ func resourceNetworkPortForwardingV2Delete(ctx context.Context, d *schema.Resour
 	}
 
 	fipID := d.Get("floatingip_id").(string)
-
 	if err := portforwarding.Delete(networkingClient, fipID, d.Id()).ExtractErr(); err != nil {
 		return diag.FromErr(CheckDeleted(d, err, "Error deleting openstack_networking_portforwarding_v2"))
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"ACTIVE"},
 		Target:     []string{"DELETED"},
 		Refresh:    networkingPortForwardingV2StateRefreshFunc(networkingClient, fipID, d.Id()),

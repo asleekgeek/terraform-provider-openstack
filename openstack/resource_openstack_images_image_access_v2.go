@@ -90,7 +90,7 @@ func resourceImagesImageAccessV2Create(ctx context.Context, d *schema.ResourceDa
 	id := fmt.Sprintf("%s/%s", imageID, memberID)
 	d.SetId(id)
 
-	if v, ok := d.GetOkExists("status"); ok {
+	if v, ok := getOkExists(d, "status"); ok {
 		d.Partial(true)
 
 		opts := members.UpdateOpts{
@@ -114,7 +114,7 @@ func resourceImagesImageAccessV2Read(ctx context.Context, d *schema.ResourceData
 		return diag.Errorf("Error creating OpenStack image client: %s", err)
 	}
 
-	imageID, memberID, err := resourceImagesImageAccessV2ParseID(d.Id())
+	imageID, memberID, err := parsePairedIDs(d.Id(), "openstack_images_image_access_v2")
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -145,7 +145,7 @@ func resourceImagesImageAccessV2Update(ctx context.Context, d *schema.ResourceDa
 		return diag.Errorf("Error creating OpenStack image client: %s", err)
 	}
 
-	imageID, memberID, err := resourceImagesImageAccessV2ParseID(d.Id())
+	imageID, memberID, err := parsePairedIDs(d.Id(), "openstack_images_image_access_v2")
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -170,7 +170,7 @@ func resourceImagesImageAccessV2Delete(ctx context.Context, d *schema.ResourceDa
 		return diag.Errorf("Error creating OpenStack image client: %s", err)
 	}
 
-	imageID, memberID, err := resourceImagesImageAccessV2ParseID(d.Id())
+	imageID, memberID, err := parsePairedIDs(d.Id(), "openstack_images_image_access_v2")
 	if err != nil {
 		return diag.FromErr(err)
 	}

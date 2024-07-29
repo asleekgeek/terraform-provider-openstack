@@ -13,7 +13,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/customdiff"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 
@@ -422,6 +422,19 @@ func resourceComputeInstanceV2() *schema.Resource {
 			customdiff.ForceNewIfChange("flavor_name", func(ctx context.Context, old, new, meta interface{}) bool {
 				return old.(string) == ""
 			}),
+			func(_ context.Context, d *schema.ResourceDiff, _ interface{}) error {
+				currentState, _ := d.GetChange("power_state")
+				if currentState == "build" {
+					// In "build" state, network and security groups are not yet available
+					if err := d.Clear("network"); err != nil {
+						return err
+					}
+					if err := d.Clear("security_groups"); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
 		),
 	}
 }
@@ -490,7 +503,7 @@ func resourceComputeInstanceV2Create(ctx context.Context, d *schema.ResourceData
 		computeClient.Microversion = computeV2InstanceCreateServerWithTagsMicroversion
 	}
 
-	if v, ok := d.GetOkExists("availability_zone"); ok {
+	if v, ok := getOkExists(d, "availability_zone"); ok {
 		availabilityZone = v.(string)
 	} else {
 		availabilityZone = d.Get("availability_zone_hints").(string)
@@ -581,7 +594,7 @@ func resourceComputeInstanceV2Create(ctx context.Context, d *schema.ResourceData
 		"[DEBUG] Waiting for instance (%s) to become running",
 		server.ID)
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"BUILD"},
 		Target:     []string{"ACTIVE"},
 		Refresh:    ServerV2StateRefreshFunc(computeClient, server.ID),
@@ -590,7 +603,7 @@ func resourceComputeInstanceV2Create(ctx context.Context, d *schema.ResourceData
 		MinTimeout: 3 * time.Second,
 	}
 
-	err = resource.RetryContext(ctx, stateConf.Timeout, func() *resource.RetryError {
+	err = retry.RetryContext(ctx, stateConf.Timeout, func() *retry.RetryError {
 		_, err = stateConf.WaitForStateContext(ctx)
 		if err != nil {
 			log.Printf("[DEBUG] Retrying after error: %s", err)
@@ -611,7 +624,7 @@ func resourceComputeInstanceV2Create(ctx context.Context, d *schema.ResourceData
 		if err != nil {
 			return diag.Errorf("Error stopping OpenStack instance: %s", err)
 		}
-		stopStateConf := &resource.StateChangeConf{
+		stopStateConf := &retry.StateChangeConf{
 			//Pending:    []string{"ACTIVE"},
 			Target:     []string{"SHUTOFF"},
 			Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -748,7 +761,7 @@ func resourceComputeInstanceV2Read(_ context.Context, d *schema.ResourceData, me
 	// Set the current power_state
 	currentStatus := strings.ToLower(server.Status)
 	switch currentStatus {
-	case "active", "shutoff", "error", "migrating", "shelved_offloaded", "shelved":
+	case "active", "shutoff", "error", "migrating", "shelved_offloaded", "shelved", "build":
 		d.Set("power_state", currentStatus)
 	default:
 		return diag.Errorf("Invalid power_state for instance %s: %s", d.Id(), server.Status)
@@ -794,7 +807,7 @@ func resourceComputeInstanceV2Update(ctx context.Context, d *schema.ResourceData
 			if err != nil {
 				return diag.Errorf("Error shelve OpenStack instance: %s", err)
 			}
-			shelveStateConf := &resource.StateChangeConf{
+			shelveStateConf := &retry.StateChangeConf{
 				//Pending:    []string{"ACTIVE"},
 				Target:     []string{"SHELVED_OFFLOADED"},
 				Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -814,7 +827,7 @@ func resourceComputeInstanceV2Update(ctx context.Context, d *schema.ResourceData
 			if err != nil {
 				return diag.Errorf("Error stopping OpenStack instance: %s", err)
 			}
-			stopStateConf := &resource.StateChangeConf{
+			stopStateConf := &retry.StateChangeConf{
 				//Pending:    []string{"ACTIVE"},
 				Target:     []string{"SHUTOFF"},
 				Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -838,13 +851,13 @@ func resourceComputeInstanceV2Update(ctx context.Context, d *schema.ResourceData
 				if err != nil {
 					return diag.Errorf("Error unshelving OpenStack instance: %s", err)
 				}
-			} else {
+			} else if strings.ToLower(powerStateOld) != "build" {
 				err = startstop.Start(computeClient, d.Id()).ExtractErr()
 				if err != nil {
 					return diag.Errorf("Error starting OpenStack instance: %s", err)
 				}
 			}
-			startStateConf := &resource.StateChangeConf{
+			startStateConf := &retry.StateChangeConf{
 				//Pending:    []string{"SHUTOFF"},
 				Target:     []string{"ACTIVE"},
 				Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -975,7 +988,7 @@ func resourceComputeInstanceV2Update(ctx context.Context, d *schema.ResourceData
 
 		// Resize instance without confirmation if specified by user.
 		if ignoreResizeConfirmation {
-			stateConf := &resource.StateChangeConf{
+			stateConf := &retry.StateChangeConf{
 				Pending:    []string{"RESIZE", "VERIFY_RESIZE"},
 				Target:     []string{"ACTIVE", "SHUTOFF"},
 				Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -989,7 +1002,7 @@ func resourceComputeInstanceV2Update(ctx context.Context, d *schema.ResourceData
 				return diag.Errorf("Error waiting for instance (%s) to resize: %s", d.Id(), err)
 			}
 		} else {
-			stateConf := &resource.StateChangeConf{
+			stateConf := &retry.StateChangeConf{
 				Pending:    []string{"RESIZE"},
 				Target:     []string{"VERIFY_RESIZE"},
 				Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -1010,7 +1023,7 @@ func resourceComputeInstanceV2Update(ctx context.Context, d *schema.ResourceData
 				return diag.Errorf("Error confirming resize of OpenStack server: %s", err)
 			}
 
-			stateConf = &resource.StateChangeConf{
+			stateConf = &retry.StateChangeConf{
 				Pending:    []string{"VERIFY_RESIZE"},
 				Target:     []string{"ACTIVE", "SHUTOFF"},
 				Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -1058,7 +1071,7 @@ func resourceComputeInstanceV2Update(ctx context.Context, d *schema.ResourceData
 		if err != nil {
 			return diag.Errorf("Error rebuilding OpenStack server: %s", err)
 		}
-		stateConf := &resource.StateChangeConf{
+		stateConf := &retry.StateChangeConf{
 			Pending:    []string{"REBUILD"},
 			Target:     []string{"ACTIVE", "SHUTOFF"},
 			Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -1099,7 +1112,7 @@ func resourceComputeInstanceV2Delete(ctx context.Context, d *schema.ResourceData
 		if err != nil {
 			log.Printf("[WARN] Error stopping openstack_compute_instance_v2: %s", err)
 		} else {
-			stopStateConf := &resource.StateChangeConf{
+			stopStateConf := &retry.StateChangeConf{
 				Pending:    []string{"ACTIVE"},
 				Target:     []string{"SHUTOFF"},
 				Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -1127,7 +1140,7 @@ func resourceComputeInstanceV2Delete(ctx context.Context, d *schema.ResourceData
 		} else {
 			for _, network := range allInstanceNetworks {
 				if network.Port != "" {
-					stateConf := &resource.StateChangeConf{
+					stateConf := &retry.StateChangeConf{
 						Pending:    []string{""},
 						Target:     []string{"DETACHED"},
 						Refresh:    computeInterfaceAttachV2DetachFunc(computeClient, d.Id(), network.Port),
@@ -1159,7 +1172,7 @@ func resourceComputeInstanceV2Delete(ctx context.Context, d *schema.ResourceData
 	// Wait for the instance to delete before moving on.
 	log.Printf("[DEBUG] Waiting for instance (%s) to delete", d.Id())
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"ACTIVE", "SHUTOFF"},
 		Target:     []string{"DELETED", "SOFT_DELETED"},
 		Refresh:    ServerV2StateRefreshFunc(computeClient, d.Id()),
@@ -1292,9 +1305,9 @@ func resourceOpenStackComputeInstanceV2ImportState(ctx context.Context, d *schem
 	return results, nil
 }
 
-// ServerV2StateRefreshFunc returns a resource.StateRefreshFunc that is used to watch
+// ServerV2StateRefreshFunc returns a retry.StateRefreshFunc that is used to watch
 // an OpenStack instance.
-func ServerV2StateRefreshFunc(client *gophercloud.ServiceClient, instanceID string) resource.StateRefreshFunc {
+func ServerV2StateRefreshFunc(client *gophercloud.ServiceClient, instanceID string) retry.StateRefreshFunc {
 	return func() (interface{}, string, error) {
 		s, err := servers.Get(client, instanceID).Extract()
 		if err != nil {

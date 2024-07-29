@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/gophercloud/gophercloud/openstack/dns/v2/recordsets"
@@ -136,7 +136,7 @@ func resourceDNSRecordSetV2Create(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	if !d.Get("disable_status_check").(bool) {
-		stateConf := &resource.StateChangeConf{
+		stateConf := &retry.StateChangeConf{
 			Target:     []string{"ACTIVE"},
 			Pending:    []string{"PENDING"},
 			Refresh:    dnsRecordSetV2RefreshFunc(dnsClient, zoneID, n.ID),
@@ -170,7 +170,7 @@ func resourceDNSRecordSetV2Read(_ context.Context, d *schema.ResourceData, meta 
 	}
 
 	// Obtain relevant info from parsing the ID
-	zoneID, recordsetID, err := dnsRecordSetV2ParseID(d.Id())
+	zoneID, recordsetID, err := parsePairedIDs(d.Id(), "openstack_dns_recordset_v2")
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -240,7 +240,7 @@ func resourceDNSRecordSetV2Update(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	// Obtain relevant info from parsing the ID
-	zoneID, recordsetID, err := dnsRecordSetV2ParseID(d.Id())
+	zoneID, recordsetID, err := parsePairedIDs(d.Id(), "openstack_dns_recordset_v2")
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -253,7 +253,7 @@ func resourceDNSRecordSetV2Update(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	if !d.Get("disable_status_check").(bool) {
-		stateConf := &resource.StateChangeConf{
+		stateConf := &retry.StateChangeConf{
 			Target:     []string{"ACTIVE"},
 			Pending:    []string{"PENDING"},
 			Refresh:    dnsRecordSetV2RefreshFunc(dnsClient, zoneID, recordsetID),
@@ -284,7 +284,7 @@ func resourceDNSRecordSetV2Delete(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	// Obtain relevant info from parsing the ID
-	zoneID, recordsetID, err := dnsRecordSetV2ParseID(d.Id())
+	zoneID, recordsetID, err := parsePairedIDs(d.Id(), "openstack_dns_recordset_v2")
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -295,7 +295,7 @@ func resourceDNSRecordSetV2Delete(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	if !d.Get("disable_status_check").(bool) {
-		stateConf := &resource.StateChangeConf{
+		stateConf := &retry.StateChangeConf{
 			Target:     []string{"DELETED"},
 			Pending:    []string{"ACTIVE", "PENDING"},
 			Refresh:    dnsRecordSetV2RefreshFunc(dnsClient, zoneID, recordsetID),

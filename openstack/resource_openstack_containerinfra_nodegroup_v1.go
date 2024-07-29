@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 
@@ -191,7 +190,7 @@ func resourceContainerInfraNodeGroupV1Create(ctx context.Context, d *schema.Reso
 	id := fmt.Sprintf("%s/%s", clusterID, nodeGroup.UUID)
 	d.SetId(id)
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:      []string{"CREATE_IN_PROGRESS"},
 		Target:       []string{"CREATE_COMPLETE"},
 		Refresh:      containerInfraNodeGroupV1StateRefreshFunc(containerInfraClient, clusterID, nodeGroup.UUID),
@@ -219,9 +218,9 @@ func resourceContainerInfraNodeGroupV1Read(_ context.Context, d *schema.Resource
 
 	containerInfraClient.Microversion = containerInfraV1NodeGroupMinMicroversion
 
-	clusterID, nodeGroupID, err := parseNodeGroupID(d.Id())
+	clusterID, nodeGroupID, err := parsePairedIDs(d.Id(), "openstack_containerinfra_nodegroup_v1")
 	if err != nil {
-		return diag.FromErr(CheckDeleted(d, err, "Error parsing ID of openstack_containerinfra_nodegroup_v1"))
+		return diag.FromErr(err)
 	}
 
 	nodeGroup, err := nodegroups.Get(containerInfraClient, clusterID, nodeGroupID).Extract()
@@ -274,9 +273,9 @@ func resourceContainerInfraNodeGroupV1Update(ctx context.Context, d *schema.Reso
 
 	containerInfraClient.Microversion = containerInfraV1NodeGroupMinMicroversion
 
-	clusterID, nodeGroupID, err := parseNodeGroupID(d.Id())
+	clusterID, nodeGroupID, err := parsePairedIDs(d.Id(), "openstack_containerinfra_nodegroup_v1")
 	if err != nil {
-		return diag.FromErr(CheckDeleted(d, err, "Error parsing ID of openstack_containerinfra_nodegroup_v1"))
+		return diag.FromErr(err)
 	}
 
 	updateOpts := []nodegroups.UpdateOptsBuilder{}
@@ -317,7 +316,7 @@ func resourceContainerInfraNodeGroupV1Update(ctx context.Context, d *schema.Reso
 			return diag.Errorf("Error resizing openstack_containerinfra_nodegroup_v1 %s: %s", d.Id(), err)
 		}
 
-		stateConf := &resource.StateChangeConf{
+		stateConf := &retry.StateChangeConf{
 			Pending:      []string{"UPDATE_IN_PROGRESS"},
 			Target:       []string{"UPDATE_COMPLETE"},
 			Refresh:      containerInfraNodeGroupV1StateRefreshFunc(containerInfraClient, clusterID, nodeGroupID),
@@ -343,16 +342,16 @@ func resourceContainerInfraNodeGroupV1Delete(ctx context.Context, d *schema.Reso
 
 	containerInfraClient.Microversion = containerInfraV1NodeGroupMinMicroversion
 
-	clusterID, nodeGroupID, err := parseNodeGroupID(d.Id())
+	clusterID, nodeGroupID, err := parsePairedIDs(d.Id(), "openstack_containerinfra_nodegroup_v1")
 	if err != nil {
-		return diag.FromErr(CheckDeleted(d, err, "Error parsing ID of openstack_containerinfra_nodegroup_v1"))
+		return diag.FromErr(err)
 	}
 
 	if err := nodegroups.Delete(containerInfraClient, clusterID, nodeGroupID).ExtractErr(); err != nil {
 		return diag.FromErr(CheckDeleted(d, err, "Error deleting openstack_containerinfra_nodegroup_v1"))
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:      []string{"DELETE_IN_PROGRESS"},
 		Target:       []string{"DELETE_COMPLETE"},
 		Refresh:      containerInfraNodeGroupV1StateRefreshFunc(containerInfraClient, clusterID, nodeGroupID),
@@ -367,13 +366,4 @@ func resourceContainerInfraNodeGroupV1Delete(ctx context.Context, d *schema.Reso
 	}
 
 	return nil
-}
-
-func parseNodeGroupID(id string) (string, string, error) {
-	idParts := strings.Split(id, "/")
-	if len(idParts) < 2 {
-		return "", "", fmt.Errorf("Unable to determine nodegroup ID %s", id)
-	}
-
-	return idParts[0], idParts[1], nil
 }

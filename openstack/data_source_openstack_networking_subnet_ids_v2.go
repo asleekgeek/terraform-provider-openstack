@@ -109,6 +109,11 @@ func dataSourceNetworkingSubnetIDsV2() *schema.Resource {
 				Optional: true,
 			},
 
+			"dns_publish_fixed_ip": {
+				Type:     schema.TypeBool,
+				Optional: true,
+			},
+
 			"tags": {
 				Type:     schema.TypeSet,
 				Optional: true,
@@ -156,7 +161,7 @@ func dataSourceNetworkingSubnetIDsV2Read(ctx context.Context, d *schema.Resource
 		listOpts.Description = v.(string)
 	}
 
-	if v, ok := d.GetOkExists("dhcp_enabled"); ok {
+	if v, ok := getOkExists(d, "dhcp_enabled"); ok {
 		enableDHCP := v.(bool)
 		listOpts.EnableDHCP = &enableDHCP
 	}
@@ -191,6 +196,11 @@ func dataSourceNetworkingSubnetIDsV2Read(ctx context.Context, d *schema.Resource
 
 	if v, ok := d.GetOk("subnetpool_id"); ok {
 		listOpts.SubnetPoolID = v.(string)
+	}
+
+	if v, ok := d.GetOk("dns_publish_fixed_ip"); ok {
+		v := v.(bool)
+		listOpts.DNSPublishFixedIP = &v
 	}
 
 	tags := networkingV2AttributesTags(d)

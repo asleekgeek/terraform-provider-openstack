@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/attachinterfaces"
@@ -110,7 +110,7 @@ func resourceComputeInterfaceAttachV2Create(ctx context.Context, d *schema.Resou
 		return diag.FromErr(err)
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"ATTACHING"},
 		Target:     []string{"ATTACHED"},
 		Refresh:    computeInterfaceAttachV2AttachFunc(computeClient, instanceID, attachment.PortID),
@@ -140,7 +140,7 @@ func resourceComputeInterfaceAttachV2Read(_ context.Context, d *schema.ResourceD
 		return diag.Errorf("Error creating OpenStack compute client: %s", err)
 	}
 
-	instanceID, attachmentID, err := computeInterfaceAttachV2ParseID(d.Id())
+	instanceID, attachmentID, err := parsePairedIDs(d.Id(), "openstack_compute_interface_attach_v2")
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -171,12 +171,12 @@ func resourceComputeInterfaceAttachV2Delete(ctx context.Context, d *schema.Resou
 		return diag.Errorf("Error creating OpenStack compute client: %s", err)
 	}
 
-	instanceID, attachmentID, err := computeInterfaceAttachV2ParseID(d.Id())
+	instanceID, attachmentID, err := parsePairedIDs(d.Id(), "openstack_compute_interface_attach_v2")
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{""},
 		Target:     []string{"DETACHED"},
 		Refresh:    computeInterfaceAttachV2DetachFunc(computeClient, instanceID, attachmentID),

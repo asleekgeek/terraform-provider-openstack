@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/attributestags"
@@ -60,6 +60,12 @@ func resourceNetworkingSecGroupV2() *schema.Resource {
 				ForceNew: true,
 			},
 
+			"stateful": {
+				Type:     schema.TypeBool,
+				Optional: true,
+				Computed: true,
+			},
+
 			"tags": {
 				Type:     schema.TypeSet,
 				Optional: true,
@@ -86,6 +92,10 @@ func resourceNetworkingSecGroupV2Create(ctx context.Context, d *schema.ResourceD
 		Name:        d.Get("name").(string),
 		Description: d.Get("description").(string),
 		TenantID:    d.Get("tenant_id").(string),
+	}
+	if v, ok := getOkExists(d, "stateful"); ok {
+		v := v.(bool)
+		opts.Stateful = &v
 	}
 
 	log.Printf("[DEBUG] openstack_networking_secgroup_v2 create options: %#v", opts)
@@ -139,9 +149,12 @@ func resourceNetworkingSecGroupV2Read(ctx context.Context, d *schema.ResourceDat
 		return diag.FromErr(CheckDeleted(d, err, "Error retrieving openstack_networking_secgroup_v2"))
 	}
 
+	log.Printf("[DEBUG] Created openstack_networking_secgroup_v2: %#v", sg)
+
 	d.Set("description", sg.Description)
 	d.Set("tenant_id", sg.TenantID)
 	d.Set("name", sg.Name)
+	d.Set("stateful", sg.Stateful)
 	d.Set("region", GetRegion(d, config))
 
 	networkingV2ReadAttributesTags(d, sg.Tags)
@@ -172,6 +185,12 @@ func resourceNetworkingSecGroupV2Update(ctx context.Context, d *schema.ResourceD
 		updateOpts.Description = &description
 	}
 
+	if d.HasChange("stateful") {
+		updated = true
+		stateful := d.Get("stateful").(bool)
+		updateOpts.Stateful = &stateful
+	}
+
 	if updated {
 		log.Printf("[DEBUG] Updating openstack_networking_secgroup_v2 %s with options: %#v", d.Id(), updateOpts)
 		_, err = groups.Update(networkingClient, d.Id(), updateOpts).Extract()
@@ -200,7 +219,7 @@ func resourceNetworkingSecGroupV2Delete(ctx context.Context, d *schema.ResourceD
 		return diag.Errorf("Error creating OpenStack networking client: %s", err)
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"ACTIVE"},
 		Target:     []string{"DELETED"},
 		Refresh:    networkingSecgroupV2StateRefreshFuncDelete(networkingClient, d.Id()),

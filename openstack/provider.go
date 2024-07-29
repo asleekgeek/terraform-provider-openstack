@@ -3,16 +3,18 @@ package openstack
 import (
 	"context"
 	"os"
+	"runtime/debug"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/logging"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/meta"
 
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/utils/terraform/auth"
 	"github.com/gophercloud/utils/terraform/mutexkv"
 )
+
+var version = "dev"
 
 // Use openstackbase.Config as the base/foundation of this provider's
 // Config struct.
@@ -420,6 +422,10 @@ func Provider() *schema.Provider {
 			"openstack_keymanager_secret_v1":                     resourceKeyManagerSecretV1(),
 			"openstack_keymanager_container_v1":                  resourceKeyManagerContainerV1(),
 			"openstack_keymanager_order_v1":                      resourceKeyManagerOrderV1(),
+			"openstack_bgpvpn_v2":                                resourceBGPVPNV2(),
+			"openstack_bgpvpn_network_associate_v2":              resourceBGPVPNNetworkAssociateV2(),
+			"openstack_bgpvpn_router_associate_v2":               resourceBGPVPNRouterAssociateV2(),
+			"openstack_bgpvpn_port_associate_v2":                 resourceBGPVPNPortAssociateV2(),
 		},
 	}
 
@@ -512,6 +518,21 @@ func init() {
 	}
 }
 
+func getSDKVersion() string {
+	buildInfo, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+
+	for _, v := range buildInfo.Deps {
+		if v.Path == "github.com/hashicorp/terraform-plugin-sdk/v2" {
+			return v.Version
+		}
+	}
+
+	return ""
+}
+
 func configureProvider(d *schema.ResourceData, terraformVersion string) (interface{}, diag.Diagnostics) {
 	enableLogging := d.Get("enable_logging").(bool)
 	if !enableLogging {
@@ -561,13 +582,13 @@ func configureProvider(d *schema.ResourceData, terraformVersion string) (interfa
 			MaxRetries:                  d.Get("max_retries").(int),
 			DisableNoCacheHeader:        d.Get("disable_no_cache_header").(bool),
 			TerraformVersion:            terraformVersion,
-			SDKVersion:                  meta.SDKVersionString(),
+			SDKVersion:                  getSDKVersion() + " Terraform Provider OpenStack/" + version,
 			MutexKV:                     mutexkv.NewMutexKV(),
 			EnableLogger:                enableLogging,
 		},
 	}
 
-	v, ok := d.GetOkExists("insecure")
+	v, ok := getOkExists(d, "insecure")
 	if ok {
 		insecure := v.(bool)
 		config.Insecure = &insecure

@@ -3,9 +3,8 @@ package openstack
 import (
 	"fmt"
 	"log"
-	"strings"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack/dns/v2/recordsets"
@@ -32,7 +31,7 @@ func (opts RecordSetCreateOpts) ToRecordSetCreateMap() (map[string]interface{}, 
 	return nil, fmt.Errorf("Expected map but got %T", b[""])
 }
 
-func dnsRecordSetV2RefreshFunc(dnsClient *gophercloud.ServiceClient, zoneID, recordsetID string) resource.StateRefreshFunc {
+func dnsRecordSetV2RefreshFunc(dnsClient *gophercloud.ServiceClient, zoneID, recordsetID string) retry.StateRefreshFunc {
 	return func() (interface{}, string, error) {
 		recordset, err := recordsets.Get(dnsClient, zoneID, recordsetID).Extract()
 		if err != nil {
@@ -46,16 +45,4 @@ func dnsRecordSetV2RefreshFunc(dnsClient *gophercloud.ServiceClient, zoneID, rec
 		log.Printf("[DEBUG] openstack_dns_recordset_v2 %s current status: %s", recordset.ID, recordset.Status)
 		return recordset, recordset.Status, nil
 	}
-}
-
-func dnsRecordSetV2ParseID(id string) (string, string, error) {
-	idParts := strings.Split(id, "/")
-	if len(idParts) != 2 {
-		return "", "", fmt.Errorf("Unable to determine openstack_dns_recordset_v2 ID from raw ID: %s", id)
-	}
-
-	zoneID := idParts[0]
-	recordsetID := idParts[1]
-
-	return zoneID, recordsetID, nil
 }

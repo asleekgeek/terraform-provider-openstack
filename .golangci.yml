@@ -13,7 +13,7 @@ linters-settings:
   depguard:
     rules:
       prevent_unmaintained_packages:
-        list-mode: lax 
+        list-mode: lax
         files:
           - $all
           - "!$test"
@@ -101,9 +101,6 @@ linters:
 
 issues:
   exclude-rules:
-    - linters:
-        - staticcheck
-      text: "SA1019:"
     - linters:
         - stylecheck
       text: "ST1005:"

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/qos/rules"
@@ -85,7 +85,7 @@ func resourceNetworkingQoSBandwidthLimitRuleV2Create(ctx context.Context, d *sch
 
 	log.Printf("[DEBUG] Waiting for openstack_networking_qos_bandwidth_limit_rule_v2 %s to become available.", r.ID)
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Target:     []string{"ACTIVE"},
 		Refresh:    networkingQoSBandwidthLimitRuleV2StateRefreshFunc(networkingClient, qosPolicyID, r.ID),
 		Timeout:    d.Timeout(schema.TimeoutCreate),
@@ -113,9 +113,9 @@ func resourceNetworkingQoSBandwidthLimitRuleV2Read(ctx context.Context, d *schem
 		return diag.Errorf("Error creating OpenStack networking client: %s", err)
 	}
 
-	qosPolicyID, qosRuleID, err := resourceNetworkingQoSRuleV2ParseID(d.Id())
+	qosPolicyID, qosRuleID, err := parsePairedIDs(d.Id(), "openstack_networking_qos_bandwidth_limit_rule_v2")
 	if err != nil {
-		return diag.Errorf("Error reading openstack_networking_qos_bandwidth_limit_rule_v2 ID %s: %s", d.Id(), err)
+		return diag.FromErr(err)
 	}
 
 	r, err := rules.GetBandwidthLimitRule(networkingClient, qosPolicyID, qosRuleID).ExtractBandwidthLimitRule()
@@ -141,9 +141,9 @@ func resourceNetworkingQoSBandwidthLimitRuleV2Update(ctx context.Context, d *sch
 		return diag.Errorf("Error creating OpenStack networking client: %s", err)
 	}
 
-	qosPolicyID, qosRuleID, err := resourceNetworkingQoSRuleV2ParseID(d.Id())
+	qosPolicyID, qosRuleID, err := parsePairedIDs(d.Id(), "openstack_networking_qos_bandwidth_limit_rule_v2")
 	if err != nil {
-		return diag.Errorf("Error reading openstack_networking_qos_bandwidth_limit_rule_v2 ID %s: %s", d.Id(), err)
+		return diag.FromErr(err)
 	}
 
 	var hasChange bool
@@ -184,16 +184,16 @@ func resourceNetworkingQoSBandwidthLimitRuleV2Delete(ctx context.Context, d *sch
 		return diag.Errorf("Error creating OpenStack networking client: %s", err)
 	}
 
-	qosPolicyID, qosRuleID, err := resourceNetworkingQoSRuleV2ParseID(d.Id())
+	qosPolicyID, qosRuleID, err := parsePairedIDs(d.Id(), "openstack_networking_qos_bandwidth_limit_rule_v2")
 	if err != nil {
-		return diag.Errorf("Error reading openstack_networking_qos_bandwidth_limit_rule_v2 ID %s: %s", d.Id(), err)
+		return diag.FromErr(err)
 	}
 
 	if err := rules.DeleteBandwidthLimitRule(networkingClient, qosPolicyID, qosRuleID).ExtractErr(); err != nil {
 		return diag.FromErr(CheckDeleted(d, err, "Error getting openstack_networking_qos_bandwidth_limit_rule_v2"))
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"ACTIVE"},
 		Target:     []string{"DELETED"},
 		Refresh:    networkingQoSBandwidthLimitRuleV2StateRefreshFunc(networkingClient, qosPolicyID, d.Id()),

@@ -1,18 +1,16 @@
 package openstack
 
 import (
-	"fmt"
 	"log"
-	"strings"
 
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/attachinterfaces"
 )
 
 func computeInterfaceAttachV2AttachFunc(
-	computeClient *gophercloud.ServiceClient, instanceID, attachmentID string) resource.StateRefreshFunc {
+	computeClient *gophercloud.ServiceClient, instanceID, attachmentID string) retry.StateRefreshFunc {
 	return func() (interface{}, string, error) {
 		va, err := attachinterfaces.Get(computeClient, instanceID, attachmentID).Extract()
 		if err != nil {
@@ -27,7 +25,7 @@ func computeInterfaceAttachV2AttachFunc(
 }
 
 func computeInterfaceAttachV2DetachFunc(
-	computeClient *gophercloud.ServiceClient, instanceID, attachmentID string) resource.StateRefreshFunc {
+	computeClient *gophercloud.ServiceClient, instanceID, attachmentID string) retry.StateRefreshFunc {
 	return func() (interface{}, string, error) {
 		log.Printf("[DEBUG] Attempting to detach openstack_compute_interface_attach_v2 %s from instance %s",
 			attachmentID, instanceID)
@@ -56,16 +54,4 @@ func computeInterfaceAttachV2DetachFunc(
 		log.Printf("[DEBUG] openstack_compute_interface_attach_v2 %s is still active.", attachmentID)
 		return nil, "", nil
 	}
-}
-
-func computeInterfaceAttachV2ParseID(id string) (string, string, error) {
-	idParts := strings.Split(id, "/")
-	if len(idParts) < 2 {
-		return "", "", fmt.Errorf("Unable to determine openstack_compute_interface_attach_v2 %s ID", id)
-	}
-
-	instanceID := idParts[0]
-	attachmentID := idParts[1]
-
-	return instanceID, attachmentID, nil
 }

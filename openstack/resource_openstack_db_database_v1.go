@@ -3,11 +3,10 @@ package openstack
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 
 	"github.com/gophercloud/gophercloud/openstack/db/v1/databases"
@@ -79,7 +78,7 @@ func resourceDatabaseDatabaseV1Create(ctx context.Context, d *schema.ResourceDat
 		return diag.Errorf("Error creating openstack_db_database_v1 %s on %s: %s", dbName, instanceID, err)
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"BUILD"},
 		Target:     []string{"ACTIVE"},
 		Refresh:    databaseDatabaseV1StateRefreshFunc(DatabaseV1Client, instanceID, dbName),
@@ -106,13 +105,10 @@ func resourceDatabaseDatabaseV1Read(_ context.Context, d *schema.ResourceData, m
 		return diag.Errorf("Error creating OpenStack database client: %s", err)
 	}
 
-	dbID := strings.SplitN(d.Id(), "/", 2)
-	if len(dbID) != 2 {
-		return diag.Errorf("Invalid openstack_db_database_v1 ID: %s", d.Id())
+	instanceID, dbName, err := parsePairedIDs(d.Id(), "openstack_db_database_v1")
+	if err != nil {
+		return diag.FromErr(err)
 	}
-
-	instanceID := dbID[0]
-	dbName := dbID[1]
 
 	exists, err := databaseDatabaseV1Exists(DatabaseV1Client, instanceID, dbName)
 	if err != nil {
@@ -137,13 +133,10 @@ func resourceDatabaseDatabaseV1Delete(_ context.Context, d *schema.ResourceData,
 		return diag.Errorf("Error creating OpenStack database client: %s", err)
 	}
 
-	dbID := strings.SplitN(d.Id(), "/", 2)
-	if len(dbID) != 2 {
-		return diag.Errorf("Invalid openstack_db_database_v1 ID: %s", d.Id())
+	instanceID, dbName, err := parsePairedIDs(d.Id(), "openstack_db_database_v1")
+	if err != nil {
+		return diag.FromErr(err)
 	}
-
-	instanceID := dbID[0]
-	dbName := dbID[1]
 
 	exists, err := databaseDatabaseV1Exists(DatabaseV1Client, instanceID, dbName)
 	if err != nil {

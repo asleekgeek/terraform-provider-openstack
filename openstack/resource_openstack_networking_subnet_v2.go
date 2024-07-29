@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 
@@ -139,6 +139,11 @@ func resourceNetworkingSubnetV2() *schema.Resource {
 				Elem:     &schema.Schema{Type: schema.TypeString},
 			},
 
+			"dns_publish_fixed_ip": {
+				Type:     schema.TypeBool,
+				Optional: true,
+			},
+
 			"ipv6_address_mode": {
 				Type:     schema.TypeString,
 				Optional: true,
@@ -227,6 +232,11 @@ func resourceNetworkingSubnetV2Create(ctx context.Context, d *schema.ResourceDat
 		MapValueSpecs(d),
 	}
 
+	if v, ok := d.GetOk("dns_publish_fixed_ip"); ok {
+		v := v.(bool)
+		createOpts.DNSPublishFixedIP = &v
+	}
+
 	// Set CIDR if provided. Check if inferred subnet would match the provided cidr.
 	if v, ok := d.GetOk("cidr"); ok {
 		cidr := v.(string)
@@ -272,7 +282,7 @@ func resourceNetworkingSubnetV2Create(ctx context.Context, d *schema.ResourceDat
 	}
 
 	log.Printf("[DEBUG] Waiting for openstack_networking_subnet_v2 %s to become available", s.ID)
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Target:     []string{"ACTIVE"},
 		Refresh:    networkingSubnetV2StateRefreshFunc(networkingClient, s.ID),
 		Timeout:    d.Timeout(schema.TimeoutCreate),
@@ -328,6 +338,7 @@ func resourceNetworkingSubnetV2Read(ctx context.Context, d *schema.ResourceData,
 	d.Set("ipv6_address_mode", s.IPv6AddressMode)
 	d.Set("ipv6_ra_mode", s.IPv6RAMode)
 	d.Set("subnetpool_id", s.SubnetPoolID)
+	d.Set("dns_publish_fixed_ip", s.DNSPublishFixedIP)
 
 	networkingV2ReadAttributesTags(d, s.Tags)
 
@@ -416,6 +427,12 @@ func resourceNetworkingSubnetV2Update(ctx context.Context, d *schema.ResourceDat
 		updateOpts.AllocationPools = expandNetworkingSubnetV2AllocationPools(d.Get("allocation_pool").(*schema.Set).List())
 	}
 
+	if d.HasChange("dns_publish_fixed_ip") {
+		hasChange = true
+		v := d.Get("dns_publish_fixed_ip").(bool)
+		updateOpts.DNSPublishFixedIP = &v
+	}
+
 	if hasChange {
 		log.Printf("[DEBUG] Updating openstack_networking_subnet_v2 %s with options: %#v", d.Id(), updateOpts)
 		_, err = subnets.Update(networkingClient, d.Id(), updateOpts).Extract()
@@ -444,7 +461,7 @@ func resourceNetworkingSubnetV2Delete(ctx context.Context, d *schema.ResourceDat
 		return diag.Errorf("Error creating OpenStack networking client: %s", err)
 	}
 
-	stateConf := &resource.StateChangeConf{
+	stateConf := &retry.StateChangeConf{
 		Pending:    []string{"ACTIVE"},
 		Target:     []string{"DELETED"},
 		Refresh:    networkingSubnetV2StateRefreshFuncDelete(networkingClient, d.Id()),
